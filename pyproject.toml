@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dbmigrt"
+version = "0.1.0"
+description = "Pluggable database migrator (MySQL -> SQL Server, extensible)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = [
+    "click>=8.1",
+    "SQLAlchemy>=2.0",
+    "PyMySQL>=1.1",   # mysql source driver
+]
+
+[project.optional-dependencies]
+mssql = ["pyodbc>=5.0"]   # only for `push --url` direct mode
+dev = ["pytest>=7", "pyinstaller>=6", "markdown>=3.5", "weasyprint>=60", "matplotlib>=3.7"]
+
+[project.scripts]
+dbmigrt = "app.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
