@@ -20,7 +20,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # Build on the OLDEST supported runner: a PyInstaller binary only runs
+          # on glibc >= the build machine's. ubuntu-22.04 (glibc 2.35) runs on
+          # 22.04+ servers; ubuntu-latest (24.04, glibc 2.39) would not.
+          - os: ubuntu-22.04
             asset: dbmigrt-linux-x86_64
             bin: dbmigrt
           - os: macos-latest
