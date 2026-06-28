@@ -104,6 +104,15 @@ def test_mssql_type_translation():
     assert m(mssql.NVARCHAR(50)) is None
 
 
+def test_source_connect_args_default_and_url_override():
+    from app.sources.mysql import MySQLSource
+    s = MySQLSource()
+    # default connect_timeout is applied...
+    assert s._connect_args("mysql+pymysql://u:p@h/db") == {"connect_timeout": 10}
+    # ...but the URL's own query wins (not duplicated into connect_args)
+    assert s._connect_args("mysql+pymysql://u:p@h/db?connect_timeout=3") == {}
+
+
 def test_go_batch_split():
     dst = MSSQLDestination()
     batches = dst._split_batches("SELECT 1;\nGO\nSELECT 2;\nGO\n")

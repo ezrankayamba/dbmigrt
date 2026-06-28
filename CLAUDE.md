@@ -73,6 +73,10 @@ preserve them (the tests in `tests/` check several):
   engine names in the CLI.
 - Schema and data are always separate files.
 - Keep prose/comments explaining *why*, not *what*.
+- Driver connect defaults go in a `Source.connect_args` class attribute (e.g.
+  MySQL's `connect_timeout`), merged in unless the URL's own query overrides
+  them. `--url` passwords with special chars must be percent-encoded (it's
+  parsed as a URL); see README Troubleshooting.
 
 ## How to extend (common task)
 

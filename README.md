@@ -61,6 +61,28 @@ dbmigrt push --in ./out --client -S localhost -d mydb -- -U sa -P 'secret'
 `--from`/`--to` default to `mysql`/`mssql` and can be omitted for now. If the two
 machines can't reach each other, copy the `out/` folder between them.
 
+## Troubleshooting
+
+**Passwords with special characters must be percent-encoded in `--url`.** The
+URL is parsed as a URL, so a raw `@`, `:`, `/`, `?`, `#`, or space in the
+password misparses silently — e.g. `...://app:p@ss@host/db` reads the password
+as `p` and the host as `ss@host`. Encode it:
+
+```bash
+python -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" 'p@ss:w0/rd'
+# -> p%40ss%3Aw0%2Frd     then:  mysql+pymysql://app:p%40ss%3Aw0%2Frd@host/db
+```
+
+(`@`→`%40`, `:`→`%3A`, `/`→`%2F`, `?`→`%3F`, `#`→`%23`, space→`%20`, `%`→`%25`.)
+The `push --client` mode takes the password as a real argument (`-- -U sa -P
+'p@ss'`), so it does **not** need encoding.
+
+**Stuck at `Reflecting mysql at ...`?** That's the connect step blocking on an
+unreachable host/port — usually a misparsed URL (see above), wrong host/port,
+or a firewall. The MySQL source uses a 10s connect timeout so it errors instead
+of hanging; tune it with `?connect_timeout=N` in the URL. Verify connectivity
+directly with `nc -vz <host> 3306`.
+
 ## Guarantees
 
 - Id / primary-key values preserved exactly (IDENTITY_INSERT + inlined values).

@@ -17,6 +17,10 @@ class MySQLSource(Source):
 
     name = "mysql"
 
+    # Fail fast on an unreachable host instead of blocking on TCP backoff.
+    # Override per-run with ?connect_timeout=N in the URL.
+    connect_args = {"connect_timeout": 10}
+
     def reflect_views(self, engine):
         """Return [(view_name, create_view_sql), ...] from information_schema."""
         sql = text(

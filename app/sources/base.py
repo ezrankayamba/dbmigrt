@@ -1,6 +1,7 @@
 """Base class for migration sources."""
 
 from sqlalchemy import create_engine, MetaData, inspect, text
+from sqlalchemy.engine import make_url
 
 
 class Source:
@@ -8,12 +9,21 @@ class Source:
 
     name = ""
 
+    # Driver-specific connect() defaults, merged in unless the URL's own query
+    # already sets the key. Subclasses set what their driver understands.
+    connect_args = {}
+
     def reflect(self, url):
         """Return (engine, metadata) for the database at ``url``."""
-        engine = create_engine(url)
+        engine = create_engine(url, connect_args=self._connect_args(url))
         md = MetaData()
         md.reflect(bind=engine)
         return engine, md
+
+    def _connect_args(self, url):
+        """Class defaults, minus any the user already set in the URL query."""
+        in_url = set(make_url(url).query)
+        return {k: v for k, v in self.connect_args.items() if k not in in_url}
 
     def reflect_views(self, engine):
         """Return [(view_name, select_sql), ...] for the source database.
