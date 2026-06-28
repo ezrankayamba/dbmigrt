@@ -13,19 +13,46 @@ permissions:
   contents: write   # create the release and upload assets
 
 jobs:
-  build:
+  # The Linux binary is built inside manylinux2014 (glibc 2.17) so it runs on
+  # old servers (Ubuntu 18.04 = glibc 2.27, etc.). A PyInstaller binary only
+  # runs on glibc >= the build host's, so building on a modern runner directly
+  # would fail on older targets. We run the build via `docker run` (not a job
+  # `container:`) so GitHub's Node-based actions keep running on the host —
+  # node20 needs glibc 2.28+ and can't run inside manylinux2014.
+  build-linux:
+    name: build (linux/manylinux2014)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build in manylinux2014 (glibc 2.17)
+        run: |
+          docker run --rm -v "$PWD":/io quay.io/pypa/manylinux2014_x86_64 bash -c '
+            set -e
+            PY=/opt/python/cp311-cp311/bin/python
+            "$PY" -m venv /venv && . /venv/bin/activate
+            pip install --upgrade pip
+            cp -r /io /build && cd /build
+            pip install . pyinstaller
+            pyinstaller --onefile --name dbmigrt \
+              --collect-submodules sqlalchemy.dialects \
+              --hidden-import pymysql app/__main__.py
+            ./dist/dbmigrt --version
+            cp dist/dbmigrt /io/dbmigrt-linux-x86_64
+          '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dbmigrt-linux-x86_64
+          path: dbmigrt-linux-x86_64
+
+  # macOS/Windows build on their own runners (can't cross-build). These keep the
+  # mssql extra so `push --url` (pyodbc) works; the Linux binary is export-focused.
+  build-desktop:
     name: build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Build on the OLDEST supported runner: a PyInstaller binary only runs
-          # on glibc >= the build machine's. ubuntu-22.04 (glibc 2.35) runs on
-          # 22.04+ servers; ubuntu-latest (24.04, glibc 2.39) would not.
-          - os: ubuntu-22.04
-            asset: dbmigrt-linux-x86_64
-            bin: dbmigrt
           - os: macos-latest
             asset: dbmigrt-macos-arm64
             bin: dbmigrt
@@ -34,27 +61,16 @@ jobs:
             bin: dbmigrt.exe
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      # pyodbc (for `push --url` direct mode) needs the unixODBC headers to
-      # install on Linux/macOS; Windows ships ODBC and uses a self-contained wheel.
-      - name: Install unixODBC (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y unixodbc-dev
       - name: Install unixODBC (macOS)
         if: runner.os == 'macOS'
         run: brew install unixodbc
-
       - name: Install dbmigrt + build tools
         run: |
           python -m pip install --upgrade pip
           pip install ".[mssql]" pyinstaller
-
-      # SQLAlchemy loads driver dialects (pymysql, pyodbc) by name at connect
-      # time, so PyInstaller can't see them statically — collect/declare them.
       - name: Build binary
         run: >
           pyinstaller --onefile --name dbmigrt
@@ -62,22 +78,19 @@ jobs:
           --hidden-import pymysql
           --hidden-import pyodbc
           app/__main__.py
-
       - name: Smoke test
         shell: bash
         run: ./dist/${{ matrix.bin }} --version
-
       - name: Stage asset
         shell: bash
         run: mv "dist/${{ matrix.bin }}" "${{ matrix.asset }}"
-
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
           path: ${{ matrix.asset }}
 
   release:
-    needs: build
+    needs: [build-linux, build-desktop]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
