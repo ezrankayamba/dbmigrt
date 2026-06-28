@@ -6,7 +6,8 @@ Guidance for Claude (and humans) working in this repository.
 
 `dbmigrt` is a pluggable database migrator. It reflects a live **source**
 database (no application code required), generates **destination**-compatible
-`schema.sql` and `data.sql`, and optionally pushes them to the target.
+`schema.sql`, `data.sql`, and (when present) `views.sql`, and optionally pushes
+them to the target.
 
 Today it supports **MySQL → SQL Server**. The architecture is built so other
 engines slot in without touching the CLI.
@@ -29,7 +30,7 @@ app/
     __init__.py          SOURCES registry {name: instance}
   destinations/
     base.py              Destination base: write_schema / write_data /
-                         push_direct / push_client
+                         write_views / push_direct / push_client
     mssql.py             MSSQLDestination (identity, FK toggling, batching)
     __init__.py          DESTINATIONS registry {name: instance}
 ```
@@ -37,10 +38,12 @@ app/
 Data flow:
 
 ```
-export:  source.reflect(url) -> metadata
+export:  source.reflect(url) -> (engine, metadata)
          dest.write_schema(metadata) -> schema.sql
          dest.write_data(engine, metadata) -> data.sql
+         source.reflect_views(engine) -> dest.write_views() -> views.sql (if any)
 push:    dest.push_direct(url, files)   OR   dest.push_client(files, ...)
+         files = [schema.sql, data.sql, views.sql?]  (views applied last)
 ```
 
 ## Hard invariants — do not regress these
@@ -57,6 +60,10 @@ preserve them (the tests in `tests/` check several):
 3. **Batch limit.** Multi-row `VALUES` inserts never exceed 1000 rows (T-SQL
    cap). See `BATCH` in `destinations/mssql.py`.
 4. **GO batching.** `push` splits scripts on lines containing only `GO`.
+5. **Apply order.** Files are pushed schema → data → views. Views are written
+   to a separate `views.sql` and applied last because they may depend on both
+   tables and loaded data. `views.sql` is optional (skipped when the source has
+   no views).
 
 ## Conventions
 
@@ -72,8 +79,9 @@ preserve them (the tests in `tests/` check several):
 Add a **source**: subclass `Source`, implement `reflect` if defaults don't fit,
 register in `SOURCES`. See `sources/CLAUDE.md`.
 
-Add a **destination**: subclass `Destination`, implement all four methods,
-register in `DESTINATIONS`. See `destinations/CLAUDE.md`.
+Add a **destination**: subclass `Destination`, implement `write_schema`,
+`write_data`, `write_views`, `push_direct`, `push_client`, register in
+`DESTINATIONS`. See `destinations/CLAUDE.md`.
 
 No CLI changes are needed for either.
 

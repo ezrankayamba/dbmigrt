@@ -1,23 +1,26 @@
 # CLAUDE.md — destinations
 
-A **destination** turns reflected `MetaData` into target-specific SQL and
-applies it. It owns all dialect-specific behaviour.
+A **destination** turns reflected `MetaData` (and reflected views) into
+target-specific SQL and applies it. It owns all dialect-specific behaviour.
 
-## The four methods
+## The five methods
 
 ```python
 write_schema(path, md)              # CREATE TABLE / index DDL -> path
 write_data(path, engine, md)        # INSERTs (+ any wrapping) -> path
+write_views(path, views)            # CREATE VIEW from [(name, select_sql), ...] -> path
 push_direct(url, files)             # apply files via a DB driver
 push_client(files, server, db, extra)  # apply files via a client binary
 ```
 
-Schema and data are always separate files.
+Schema, data, and views are always separate files. `views` is the list of
+`(name, select_sql)` pairs returned by `Source.reflect_views`; the SELECT body
+is in the *source* dialect, so `write_views` owns any translation.
 
 ## Adding a destination
 
 1. Create `destinations/<engine>.py`, subclass `Destination`, set `name` and
-   `dialect`, implement the four methods. Reuse `ordering.ordered_tables(md)`
+   `dialect`, implement the five methods. Reuse `ordering.ordered_tables(md)`
    for parent-first ordering.
 
 2. Register in `destinations/__init__.py`:
@@ -43,6 +46,9 @@ MSSQL implementation is the reference):
 - **Respect the dialect's multi-row INSERT limit** (MSSQL: 1000 rows/statement).
 - **Batch separator** — MSSQL uses `GO`; other targets may not. If your push
   reads the generated files, split on the separator your `write_*` emitted.
+- **Apply views last** — `push` orders files schema → data → views, since views
+  may reference both tables and loaded data. `views.sql` is optional (skipped
+  when the source has none).
 
 ## Why these are invariants
 

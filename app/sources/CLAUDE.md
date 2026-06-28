@@ -1,7 +1,8 @@
 # CLAUDE.md — sources
 
 A **source** connects to a live database and reflects its structure into a
-SQLAlchemy `MetaData` object. That's the only contract.
+SQLAlchemy `MetaData` object, and optionally reflects its views. That's the
+only contract.
 
 ## Adding a source
 
@@ -37,6 +38,11 @@ That's it — the CLI's `--from` choices update automatically.
 ## Contract
 
 - `reflect(url) -> (engine, metadata)`.
+- `reflect_views(engine) -> [(view_name, select_sql), ...]`. The base
+  implementation uses SQLAlchemy's inspector and returns `[]` when the dialect
+  doesn't support view reflection. The returned SQL is the *source* dialect's
+  SELECT body — translation is the destination's job. Override only for
+  dialect-specific definition retrieval.
 - The returned `engine` must stay usable for streaming row reads during
   `write_data` (the destination calls `engine.connect()` with
   `stream_results=True`).
