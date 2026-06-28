@@ -93,6 +93,9 @@ python -m pytest -q               # run tests (uses SQLite as a source stand-in)
 python -m app --help              # run the CLI
 python docs/build_pdf.py          # regenerate docs/SDD.pdf from SDD.md
 pyinstaller --onefile --name dbmigrt app/__main__.py   # single binary
+
+# opt-in end-to-end test against live MySQL + SQL Server (see docker/e2e/)
+cd docker/e2e && docker compose up --build --abort-on-container-exit --exit-code-from runner
 ```
 
 ## Testing notes
@@ -101,6 +104,11 @@ Tests use **SQLite** as a stand-in source so CI needs no live MySQL/MSSQL. The
 same SQLAlchemy reflection path is exercised, so ordering, identity detection,
 FK wrapping, and batching are all covered. When adding a destination, add a test
 that asserts its invariants the same way `tests/test_export_sqlite.py` does.
+
+For dialect/translation issues SQLite can't surface (invalid type renders,
+overflow, charset loss, view qualifiers), `docker/e2e/` runs a full
+MySQL → SQL Server migration against live engines. It's opt-in (not part of
+`pytest`); see `docker/e2e/README.md`.
 
 ## Known limitations (intentional, document don't "fix" silently)
 

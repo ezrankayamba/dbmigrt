@@ -1,0 +1,39 @@
+name: dbmigrt-e2e
+
+# End-to-end migration test: live MySQL -> live SQL Server (Azure SQL Edge).
+# The runner executes the real `dbmigrt` CLI (export + push) and verifies the
+# result. See README.md.
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mssql:
+    # Azure SQL Edge is the arm64-native SQL Server engine (same TDS/T-SQL);
+    # swap for mcr.microsoft.com/mssql/server on amd64 if preferred.
+    image: mcr.microsoft.com/azure-sql-edge:latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Passw0rd!2024"
+
+  runner:
+    build:
+      context: .
+      dockerfile: runner/Dockerfile
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mssql:
+        condition: service_started
+    volumes:
+      # repo root, so `python -m app` runs the working-tree code
+      - ../..:/work

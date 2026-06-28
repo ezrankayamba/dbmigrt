@@ -11,6 +11,8 @@ venv/
 # dbmigrt output
 out/
 *.sql
+# checked-in test fixture, not generated output
+!docker/e2e/mysql/init.sql
 
 # tooling
 .pytest_cache/
