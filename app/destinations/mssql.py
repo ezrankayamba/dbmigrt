@@ -5,7 +5,8 @@ import subprocess
 import sys
 
 from sqlalchemy import create_engine, select, text
-from sqlalchemy.dialects import mssql
+from sqlalchemy import types as sqltypes
+from sqlalchemy.dialects import mssql, mysql
 from sqlalchemy.schema import CreateTable, CreateIndex
 
 from .base import Destination
@@ -27,6 +28,61 @@ class MSSQLDestination(Destination):
 
     name = "mssql"
     dialect = mssql.dialect()
+
+    # -- type translation -------------------------------------------------- #
+    @staticmethod
+    def _nvarchar(length):
+        """NVARCHAR(length), or NVARCHAR(max) when length is unknown/over 4000."""
+        return mssql.NVARCHAR(length if length and length <= 4000 else None)
+
+    @staticmethod
+    def _mssql_type(t):
+        """Map a reflected (often MySQL-specific) type to an MSSQL-safe one.
+
+        SQL Server's compiler can't render MySQL-only types (ENUM, SET, JSON,
+        the *TEXT/*BLOB family) and has no UNSIGNED, whose wider range can
+        overflow the signed target. We also map every string type to an N-type:
+        MySQL text is utf8mb4, and only NCHAR/NVARCHAR preserve Unicode (and
+        make literal_binds emit N'...' literals). Returns None to keep original.
+        """
+        if isinstance(t, (mysql.ENUM, mysql.SET)):
+            vals = getattr(t, "enums", None) or []
+            return MSSQLDestination._nvarchar(max((len(v) for v in vals), default=0))
+        if isinstance(t, sqltypes.JSON):
+            return mssql.NVARCHAR(None)  # NVARCHAR(max)
+        if isinstance(t, (mysql.DOUBLE, mysql.REAL)):
+            return sqltypes.Float()  # SQL Server has no DOUBLE; FLOAT is 8-byte
+        if isinstance(t, sqltypes.Integer):
+            unsigned = getattr(t, "unsigned", False)
+            if isinstance(t, mysql.TINYINT) and getattr(t, "display_width", None) == 1:
+                return sqltypes.Boolean()  # MySQL's TINYINT(1) boolean idiom
+            if not unsigned:
+                return None
+            if isinstance(t, mysql.BIGINT):
+                return sqltypes.Numeric(20, 0)  # exceeds signed BIGINT range
+            if isinstance(t, mysql.SMALLINT):
+                return sqltypes.Integer()
+            if isinstance(t, mysql.TINYINT):
+                return sqltypes.SmallInteger()
+            return sqltypes.BigInteger()  # INT/MEDIUMINT UNSIGNED
+        if isinstance(t, sqltypes.LargeBinary):
+            return mssql.VARBINARY(None)  # covers BLOB and the *BLOB family
+        if isinstance(t, sqltypes.String):
+            # CHAR/VARCHAR/TEXT/*TEXT (and the N-types from re-runs). Already an
+            # MSSQL N-type? leave it so _prepare stays idempotent.
+            if isinstance(t, (mssql.NVARCHAR, mssql.NCHAR, mssql.NTEXT)):
+                return None
+            return MSSQLDestination._nvarchar(getattr(t, "length", None))
+        return None
+
+    @classmethod
+    def _prepare(cls, md):
+        """Coerce unsupported column types in-place. Idempotent."""
+        for table in md.tables.values():
+            for col in table.columns:
+                new = cls._mssql_type(col.type)
+                if new is not None:
+                    col.type = new
 
     # -- helpers ----------------------------------------------------------- #
     @staticmethod
@@ -59,6 +115,7 @@ class MSSQLDestination(Destination):
     # -- schema ------------------------------------------------------------ #
     def write_schema(self, path, md):
         d = self.dialect
+        self._prepare(md)
         with open(path, "w", encoding="utf-8") as f:
             f.write("SET NOCOUNT ON;\nGO\n\n/* ===== SCHEMA ===== */\n")
             for table in ordered_tables(md):
@@ -74,6 +131,7 @@ class MSSQLDestination(Destination):
     # -- data -------------------------------------------------------------- #
     def write_data(self, path, engine, md):
         d = self.dialect
+        self._prepare(md)
         tables = ordered_tables(md)
         with engine.connect() as conn, open(path, "w", encoding="utf-8") as f:
             f.write("SET NOCOUNT ON;\nGO\n\n")

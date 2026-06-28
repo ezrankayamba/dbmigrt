@@ -10,6 +10,8 @@ import os
 from sqlalchemy import (
     create_engine, MetaData, Table, Column, Integer, String, ForeignKey,
 )
+from sqlalchemy import types as sqltypes
+from sqlalchemy.dialects import mssql, mysql
 
 from app.destinations import DESTINATIONS
 from app.destinations.mssql import MSSQLDestination
@@ -70,6 +72,36 @@ def test_schema_and_data_generation(tmp_path):
 
     # original ids preserved as literals
     assert "1" in data_sql and "'a'" in data_sql
+
+
+def test_mssql_type_translation():
+    """MySQL-only types must be coerced to types SQL Server can render/store."""
+    m = MSSQLDestination._mssql_type
+
+    # ENUM/SET -> NVARCHAR sized to the longest member
+    enum_t = m(mysql.ENUM("a", "bb", "ccc"))
+    assert isinstance(enum_t, mssql.NVARCHAR) and enum_t.length == 3
+
+    # JSON / large text -> NVARCHAR(max)
+    assert isinstance(m(mysql.JSON()), mssql.NVARCHAR) and m(mysql.JSON()).length is None
+    assert m(mysql.LONGTEXT()).length is None
+
+    # DOUBLE has no SQL Server spelling -> FLOAT
+    assert isinstance(m(mysql.DOUBLE()), sqltypes.Float)
+
+    # UNSIGNED widens to avoid overflow; BIGINT UNSIGNED exceeds signed range
+    assert isinstance(m(mysql.INTEGER(unsigned=True)), sqltypes.BigInteger)
+    assert isinstance(m(mysql.BIGINT(unsigned=True)), sqltypes.Numeric)
+
+    # TINYINT(1) is MySQL's boolean idiom
+    assert isinstance(m(mysql.TINYINT(display_width=1)), sqltypes.Boolean)
+
+    # every string type becomes an N-type so utf8mb4 data survives
+    vt = m(mysql.VARCHAR(50))
+    assert isinstance(vt, mssql.NVARCHAR) and vt.length == 50
+
+    # already-translated N-types are left alone (idempotent re-runs)
+    assert m(mssql.NVARCHAR(50)) is None
 
 
 def test_go_batch_split():

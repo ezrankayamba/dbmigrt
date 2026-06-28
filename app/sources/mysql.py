@@ -27,7 +27,15 @@ class MySQLSource(Source):
         )
         views = []
         with engine.connect() as conn:
+            db = conn.execute(text("SELECT DATABASE()")).scalar()
+            prefix = f"`{db}`."  # how MySQL qualifies table refs in view bodies
             for name, definition in conn.execute(sql):
                 if definition:
+                    # MySQL fully-qualifies table references with the source
+                    # schema (`db`.`tbl`). Strip that prefix so the view binds
+                    # to the destination's default schema rather than a
+                    # non-existent source-named one. Aliases (`c`.`col`) are
+                    # single-part and unaffected.
+                    definition = definition.replace(prefix, "")
                     views.append((name, f"CREATE VIEW {name} AS {definition}"))
         return views
