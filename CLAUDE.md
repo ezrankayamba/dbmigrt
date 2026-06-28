@@ -92,7 +92,10 @@ pip install -e ".[dev,mssql]"     # editable install with test + driver deps
 python -m pytest -q               # run tests (uses SQLite as a source stand-in)
 python -m app --help              # run the CLI
 python docs/build_pdf.py          # regenerate docs/SDD.pdf from SDD.md
-pyinstaller --onefile --name dbmigrt app/__main__.py   # single binary
+# single binary (flags bundle the dynamically-loaded SQLAlchemy drivers)
+pyinstaller --onefile --name dbmigrt \
+  --collect-submodules sqlalchemy.dialects \
+  --hidden-import pymysql --hidden-import pyodbc app/__main__.py
 
 # opt-in end-to-end test against live MySQL + SQL Server (see docker/e2e/)
 cd docker/e2e && docker compose up --build --abort-on-container-exit --exit-code-from runner

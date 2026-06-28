@@ -22,13 +22,22 @@ pip install -e ".[mssql,dev]"
 ## Build a single binary
 
 ```bash
-pip install pyinstaller
-pyinstaller --onefile --name dbmigrt app/__main__.py
+pip install ".[mssql]" pyinstaller
+pyinstaller --onefile --name dbmigrt \
+  --collect-submodules sqlalchemy.dialects \
+  --hidden-import pymysql --hidden-import pyodbc \
+  app/__main__.py
 # -> dist/dbmigrt  (Linux/macOS)  or  dist\dbmigrt.exe  (Windows)
 ```
 
-Build on the OS you'll run it on. Direct `push` needs the Microsoft ODBC driver;
-`--client` mode needs only `sqlcmd`.
+The `--collect-submodules`/`--hidden-import` flags are required: SQLAlchemy
+loads driver dialects by name at connect time, so PyInstaller can't see them
+statically and the binary would fail to reach the database without them.
+
+Build on the OS you'll run it on. Tagging a release (`vX.Y.Z`) builds these
+binaries for Linux/macOS/Windows via CI — see `.github/workflows/release.yml`.
+Direct `push` needs the Microsoft ODBC driver; `--client` mode needs only
+`sqlcmd`.
 
 ## Use
 
