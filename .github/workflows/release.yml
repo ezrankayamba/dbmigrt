@@ -13,32 +13,29 @@ permissions:
   contents: write   # create the release and upload assets
 
 jobs:
-  # The Linux binary is built inside manylinux2014 (glibc 2.17) so it runs on
-  # old servers (Ubuntu 18.04 = glibc 2.27, etc.). A PyInstaller binary only
-  # runs on glibc >= the build host's, so building on a modern runner directly
-  # would fail on older targets. We run the build via `docker run` (not a job
-  # `container:`) so GitHub's Node-based actions keep running on the host —
-  # node20 needs glibc 2.28+ and can't run inside manylinux2014.
+  # Portable Linux binary: built with a uv-managed standalone CPython
+  # (python-build-standalone), which is compiled against glibc 2.17 AND ships a
+  # shared libpython. PyInstaller bundles that libpython, so the binary needs
+  # only glibc 2.17 and runs on old servers (Ubuntu 18.04 = glibc 2.27, etc.) —
+  # while the build still runs on a normal modern runner. (manylinux's own
+  # interpreters are static, which PyInstaller can't use.)
   build-linux:
-    name: build (linux/manylinux2014)
+    name: build (linux/portable)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build in manylinux2014 (glibc 2.17)
+      - uses: astral-sh/setup-uv@v5
+      - name: Build with glibc-2.17 standalone Python
         run: |
-          docker run --rm -v "$PWD":/io quay.io/pypa/manylinux2014_x86_64 bash -c '
-            set -e
-            PY=/opt/python/cp311-cp311/bin/python
-            "$PY" -m venv /venv && . /venv/bin/activate
-            pip install --upgrade pip
-            cp -r /io /build && cd /build
-            pip install . pyinstaller
-            pyinstaller --onefile --name dbmigrt \
-              --collect-submodules sqlalchemy.dialects \
-              --hidden-import pymysql app/__main__.py
-            ./dist/dbmigrt --version
-            cp dist/dbmigrt /io/dbmigrt-linux-x86_64
-          '
+          uv python install 3.11
+          uv venv --python 3.11 .venv
+          source .venv/bin/activate
+          uv pip install . pyinstaller
+          pyinstaller --onefile --name dbmigrt \
+            --collect-submodules sqlalchemy.dialects \
+            --hidden-import pymysql app/__main__.py
+          ./dist/dbmigrt --version
+          mv dist/dbmigrt dbmigrt-linux-x86_64
       - uses: actions/upload-artifact@v4
         with:
           name: dbmigrt-linux-x86_64
